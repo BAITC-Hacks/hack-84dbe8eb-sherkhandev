@@ -85,6 +85,15 @@ def _first(raw: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _stock_entries(raw: dict[str, Any]) -> Any:
+    """Select the first populated stock collection from provider variants."""
+    for key in ("stocks", "warehouses", "offers", "stores"):
+        value = raw.get(key)
+        if value not in (None, [], {}):
+            return value
+    return []
+
+
 def normalize_warehouse(raw: dict[str, Any], source_kind: str | None = None, fetched_at: datetime | None = None) -> dict[str, Any]:
     warehouse_id = _text(_first(raw, "warehouse_id", "id", "code", "store_id"))
     name = _text(_first(raw, "name", "title", "warehouse_name", "store_name"))
@@ -142,7 +151,7 @@ def normalize_product(raw: dict[str, Any], source_kind: str, fetched_at: datetim
     }
     warehouses: list[dict[str, Any]] = []
     stocks: list[dict[str, Any]] = []
-    raw_stocks = _first(raw, "stocks", "warehouses", "offers", "stores") or []
+    raw_stocks = _stock_entries(raw)
     if isinstance(raw_stocks, dict):
         raw_stocks = [raw_stocks]
     if isinstance(raw_stocks, list):

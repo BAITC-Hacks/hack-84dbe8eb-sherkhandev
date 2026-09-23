@@ -74,7 +74,12 @@ class CatalogService:
         elif self.mode == "live":
             timeout = float(getattr(self.settings, "ekt_timeout_seconds", 10))
             self._client = httpx.AsyncClient(timeout=timeout)
-            self._provider = LiveProvider(self._client, str(getattr(self.settings, "ekt_base_url", "https://ekt.kz")))
+            self._provider = LiveProvider(
+                self._client,
+                str(getattr(self.settings, "ekt_base_url", "https://ekt.kz")),
+                getattr(self.settings, "ekt_api_username", None),
+                getattr(self.settings, "ekt_api_password", None),
+            )
         else:
             raise ValueError("catalog mode must be fixture or live")
         self._initialized = True

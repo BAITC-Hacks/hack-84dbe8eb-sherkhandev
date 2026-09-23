@@ -32,6 +32,8 @@ class Settings:
     view_ttl_seconds: int = 1800
     llm_timeout_seconds: int = 30
     ekt_timeout_seconds: int = 10
+    ekt_api_username: str | None = None
+    ekt_api_password: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -48,6 +50,8 @@ class Settings:
             view_ttl_seconds=_int_env("VIEW_TTL_SECONDS", 1800),
             llm_timeout_seconds=_int_env("LLM_TIMEOUT_SECONDS", 30),
             ekt_timeout_seconds=_int_env("EKT_TIMEOUT_SECONDS", 10),
+            ekt_api_username=os.getenv("EKT_API_USERNAME") or None,
+            ekt_api_password=os.getenv("EKT_API_PASSWORD") or None,
         )
 
     @property
@@ -77,4 +81,3 @@ class Settings:
     @property
     def cart_db_path(self) -> Path:
         return self.runtime_dir / "cart.sqlite"
-

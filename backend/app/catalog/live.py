@@ -15,12 +15,23 @@ from app.catalog.normalize import now_utc, normalize_product
 
 
 class LiveProvider:
-    def __init__(self, client: httpx.AsyncClient, base_url: str = "https://ekt.kz") -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str = "https://ekt.kz",
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
         self.client = client
         self.base_url = base_url.rstrip("/")
+        self.auth = httpx.BasicAuth(username, password) if username is not None and password is not None else None
 
     async def fetch_detail(self, product_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        response = await self.client.get(f"{self.base_url}/api/products/detail", params={"id": product_id})
+        response = await self.client.get(
+            f"{self.base_url}/api/products/detail",
+            params={"id": product_id},
+            auth=self.auth,
+        )
         response.raise_for_status()
         payload = response.json()
         if isinstance(payload, dict) and isinstance(payload.get("data"), dict):

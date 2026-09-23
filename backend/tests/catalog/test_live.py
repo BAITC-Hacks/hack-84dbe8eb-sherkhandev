@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 
 from app.catalog import CatalogService
 from app.catalog.live import LiveProvider
+from app.catalog.normalize import normalize_product, now_utc
 
 
 @dataclass
@@ -53,6 +55,25 @@ async def test_live_snapshot_uses_one_detail_response_and_preserves_decimal_valu
         assert len(calls) == 1
     finally:
         await service.close()
+
+
+@pytest.mark.asyncio
+async def test_live_provider_sends_basic_auth_when_configured():
+    seen = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json=detail_payload())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = LiveProvider(client, "https://example.invalid", "apiuser", "secret")
+    try:
+        await provider.fetch_detail("000123")
+    finally:
+        await client.aclose()
+
+    expected = base64.b64encode(b"apiuser:secret").decode("ascii")
+    assert seen["authorization"] == f"Basic {expected}"
 
 
 @pytest.mark.asyncio
@@ -102,6 +123,17 @@ def stores_payload():
             },
         ],
     }
+
+
+def test_live_normalizer_uses_stores_when_empty_offers_are_present():
+    raw = stores_payload()
+    raw["offers"] = []
+    product, stocks, warehouses = normalize_product(raw, "ekt", now_utc())
+
+    assert product["product_id"] == "000789"
+    assert len(stocks) == 4
+    assert len(warehouses) == 4
+    assert stocks[0]["value"]["warehouse_id"] == "001"
 
 
 @pytest.mark.asyncio
