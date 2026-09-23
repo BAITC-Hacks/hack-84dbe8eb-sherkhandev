@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EKT AI — демо-консультант</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body><main class="shell"><header><h1>EKT AI</h1><p>Демонстрационный консультант и корзина</p></header>
+<section class="panel"><label for="warehouse">Склад</label><select id="warehouse" disabled><option>Загрузка…</option></select><span id="warehouse-note" class="note"></span></section>
+<section id="dialog" class="dialog" aria-live="polite"></section>
+<form id="chat-form" class="composer"><label class="sr-only" for="message">Сообщение</label><input id="message" autocomplete="off" placeholder="Например: DEMO-001, 2 шт." required><button>Отправить</button></form>
+<section class="panel"><h2>Корзина</h2><div id="cart">Загрузка…</div></section></main><script src="/assets/app.js"></script></body></html>
