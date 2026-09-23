@@ -1,7 +1,160 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EKT AI — демо-консультант</title><link rel="stylesheet" href="/assets/app.css"></head>
-<body><main class="shell"><header><h1>EKT AI</h1><p>Демонстрационный консультант и корзина</p></header>
-<section class="panel"><label for="warehouse">Склад</label><select id="warehouse" disabled><option>Загрузка…</option></select><span id="warehouse-note" class="note"></span></section>
-<section id="dialog" class="dialog" aria-live="polite"></section>
-<form id="chat-form" class="composer"><label class="sr-only" for="message">Сообщение</label><input id="message" autocomplete="off" placeholder="Например: DEMO-001, 2 шт." required><button>Отправить</button></form>
-<section class="panel"><h2>Корзина</h2><div id="cart">Загрузка…</div></section></main><script src="/assets/app.js"></script></body></html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EKT AI — Интеллектуальный B2B-консультант</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Top Navigation Bar -->
+    <header class="topbar">
+      <div class="topbar-brand">
+        <div class="brand-badge-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title-row">
+            <h1 class="brand-mark">EKT AI</h1>
+            <span class="brand-version">B2B Copilot</span>
+          </div>
+          <p class="brand-subtitle">AI-консультант по каталогу и остаткам EKT</p>
+        </div>
+      </div>
+      <div class="topbar-status">
+        <div class="status-pill" id="catalog-status">
+          <span class="status-indicator"></span>
+          <span class="status-label">Live-каталог подключён</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace Grid -->
+    <div class="workspace-grid">
+      <!-- Main Chat Workspace (Left) -->
+      <section class="chat-workspace">
+        <div id="dialog" class="dialog" aria-live="polite">
+          <!-- Messages will be dynamically rendered here -->
+        </div>
+
+        <!-- Quick Prompts Bar -->
+        <div class="quick-prompts-bar">
+          <span class="quick-prompts-label">Быстрые команды:</span>
+          <div class="quick-chips">
+            <button type="button" class="quick-chip" data-prompt="DEMO-001, 2 шт.">
+              <span class="chip-icon">🛒</span> DEMO-001, 2 шт.
+            </button>
+            <button type="button" class="quick-chip" data-prompt="Найди DEMO-001, покажи характеристики и остаток">
+              <span class="chip-icon">🔍</span> Найти DEMO-001
+            </button>
+            <button type="button" class="quick-chip" data-prompt="Подбери аналоги для DEMO-002">
+              <span class="chip-icon">⚡</span> Аналоги DEMO-002
+            </button>
+            <button type="button" class="quick-chip" data-prompt="Покажи сертификат на DEMO-001">
+              <span class="chip-icon">📄</span> Сертификат DEMO-001
+            </button>
+            <button type="button" class="quick-chip" data-prompt="Какие условия доставки и оплаты?">
+              <span class="chip-icon">🚚</span> Условия доставки
+            </button>
+          </div>
+        </div>
+
+        <!-- Floating Chat Composer -->
+        <div class="composer-wrapper">
+          <form id="chat-form" class="composer">
+            <label class="sr-only" for="message">Сообщение</label>
+            <div class="composer-input-container">
+              <input 
+                id="message" 
+                type="text" 
+                autocomplete="off" 
+                placeholder="Задайте вопрос или введите артикул (например: DEMO-001, 2 шт.)" 
+                required
+              >
+            </div>
+            <button type="submit" id="send-btn" class="composer-submit" title="Отправить сообщение">
+              <span class="send-text">Отправить</span>
+              <svg class="send-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+          <div class="composer-hint">
+            <span>Клавиша <strong>Enter ↵</strong> для отправки. Наличие и цены проверяются по реальным остаткам.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sidebar Workspace (Right) -->
+      <aside class="sidebar-workspace">
+        <!-- Warehouse Selection Panel -->
+        <section class="panel warehouse-panel">
+          <div class="panel-header">
+            <div class="panel-icon-wrap">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 21h18M3 7v14M21 7v14M6 7V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v3M9 11v6M15 11v6"></path>
+              </svg>
+            </div>
+            <label for="warehouse" class="panel-title">Рабочий склад</label>
+          </div>
+          <div class="select-wrapper">
+            <select id="warehouse" disabled>
+              <option>Загрузка складов…</option>
+            </select>
+            <div class="select-chevron">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </div>
+          </div>
+          <span id="warehouse-note" class="note"></span>
+        </section>
+
+        <!-- Cart Panel -->
+        <section class="panel cart-panel">
+          <div class="panel-header">
+            <div class="panel-icon-wrap">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="9" cy="21" r="1"></circle>
+                <circle cx="20" cy="21" r="1"></circle>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+              </svg>
+            </div>
+            <h2 class="panel-title">Ваша корзина</h2>
+            <span id="cart-badge" class="cart-counter">0</span>
+          </div>
+          <div id="cart" class="cart-body">
+            Загрузка…
+          </div>
+        </section>
+
+        <!-- Help & Tips Card -->
+        <section class="panel tips-panel">
+          <div class="tips-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <span>Как это работает</span>
+          </div>
+          <ul class="tips-list">
+            <li><strong>Подбор товаров:</strong> запросите характеристики или аналоги по артикулу.</li>
+            <li><strong>Безопасное добавление:</strong> перед заказом формируется проверяемое предложение со сроком действия.</li>
+            <li><strong>Идемпотентность:</strong> повторный клик подтверждения не дублирует товар в корзине.</li>
+          </ul>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
