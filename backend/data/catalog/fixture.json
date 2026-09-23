@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "source_kind": "synthetic",
+  "warehouses": [
+    {
+      "warehouse_id": "demo-warehouse",
+      "name": "Учебный склад",
+      "eligible": true
+    }
+  ],
+  "products": [
+    {
+      "product_id": "demo-001",
+      "article": "DEMO-001",
+      "name": "Учебный автомат A",
+      "description": "Синтетический товар для демонстрации каталога.",
+      "category": "demo_breaker",
+      "brand": "EKT-DEMO",
+      "price": "1200.00",
+      "unit": "pcs",
+      "quantity_step": "1",
+      "specs": {
+        "poles": "1",
+        "rated_current_a": "16",
+        "trip_curve": "C",
+        "breaking_capacity_ka": "6"
+      },
+      "product_url": null,
+      "certificate_urls": ["/demo-certificates/DEMO-CERT-001.html"],
+      "stocks": [
+        {
+          "warehouse": {
+            "warehouse_id": "demo-warehouse",
+            "name": "Учебный склад",
+            "eligible": true
+          },
+          "quantity": "5"
+        }
+      ]
+    },
+    {
+      "product_id": "demo-002",
+      "article": "DEMO-002",
+      "name": "Учебный автомат B",
+      "description": "Синтетический товар для демонстрации отсутствующего товара.",
+      "category": "demo_breaker",
+      "brand": "EKT-DEMO",
+      "price": "1300.00",
+      "unit": "pcs",
+      "quantity_step": "1",
+      "specs": {
+        "poles": "1",
+        "rated_current_a": "16",
+        "trip_curve": "C",
+        "breaking_capacity_ka": "6"
+      },
+      "product_url": null,
+      "certificate_urls": [],
+      "stocks": [
+        {
+          "warehouse": {
+            "warehouse_id": "demo-warehouse",
+            "name": "Учебный склад",
+            "eligible": true
+          },
+          "quantity": "0"
+        }
+      ]
+    },
+    {
+      "product_id": "demo-003",
+      "article": "DEMO-003",
+      "name": "Учебный автомат C",
+      "description": "Синтетический товар, допустимый учебный аналог DEMO-002.",
+      "category": "demo_breaker",
+      "brand": "EKT-DEMO",
+      "price": "1500.00",
+      "unit": "pcs",
+      "quantity_step": "1",
+      "specs": {
+        "poles": "1",
+        "rated_current_a": "16",
+        "trip_curve": "C",
+        "breaking_capacity_ka": "6"
+      },
+      "product_url": null,
+      "certificate_urls": [],
+      "stocks": [
+        {
+          "warehouse": {
+            "warehouse_id": "demo-warehouse",
+            "name": "Учебный склад",
+            "eligible": true
+          },
+          "quantity": "10"
+        }
+      ]
+    }
+  ]
+}
