@@ -384,7 +384,11 @@
       if (response.cart) renderCart(response.cart);
     } catch (e) {
       removeTypingIndicator();
-      addBubble(`Ошибка: ${e.message}${e.code ? ' (' + e.code + ')' : ''}`, 'assistant');
+      let errText = e.message;
+      if (e.code === 'WAREHOUSE_NOT_ELIGIBLE') {
+        errText = 'Выбранный склад не предназначен для продажи. Пожалуйста, переключитесь на склад с подтверждённой доступностью (например, «Учебный склад»).';
+      }
+      addBubble(`Ошибка: ${errText}${e.code ? ' (' + e.code + ')' : ''}`, 'assistant');
     } finally {
       busy = false;
       if (sendBtn) sendBtn.disabled = false;
@@ -420,14 +424,45 @@
       const warehouses = await api('/api/v1/warehouses');
       const select = $('warehouse');
       select.textContent = '';
+      const whMap = {};
+      let firstEligibleValue = null;
+
       warehouses.warehouses.forEach(w => {
+        whMap[w.warehouse_id] = w;
         const o = document.createElement('option');
         o.value = w.warehouse_id;
-        o.textContent = `${w.name}${w.eligible === true ? '' : ' — пригодность неизвестна'}`;
+        const isEligible = w.eligible === true;
+        o.textContent = `${w.name}${isEligible ? ' (Доступен для заказа)' : ' — пригодность неизвестна'}`;
+        if (isEligible && firstEligibleValue === null) {
+          firstEligibleValue = w.warehouse_id;
+        }
         select.appendChild(o);
       });
+
+      if (firstEligibleValue !== null) {
+        select.value = firstEligibleValue;
+      }
       select.disabled = false;
-      if (!warehouses.warehouses.length) $('warehouse-note').textContent = 'Склады не найдены в доступной выборке.';
+
+      function updateWarehouseNote() {
+        const currentWh = whMap[select.value];
+        const note = $('warehouse-note');
+        if (!currentWh) {
+          if (!warehouses.warehouses.length) note.textContent = 'Склады не найдены в доступной выборке.';
+          return;
+        }
+        if (currentWh.eligible === true) {
+          note.textContent = '✓ Склад доступен для продажи и оформления заказа.';
+          note.style.color = 'var(--success-text)';
+        } else {
+          note.textContent = '⚠️ Данный склад не подтверждён для продажи (заказ недоступен).';
+          note.style.color = 'var(--warning-text)';
+        }
+      }
+
+      select.addEventListener('change', updateWarehouseNote);
+      updateWarehouseNote();
+
       const cart = await api('/api/v1/cart');
       renderCart(cart);
       addBubble('Здравствуйте! Сессия создана. Выберите склад и задайте вопрос по каталогу EKT.\n\nДля проверки сквозного сценария воспользуйтесь кнопкой «DEMO-001, 2 шт.» или введите артикул вручную.');
