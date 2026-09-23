@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.catalog.normalize import now_utc, normalize_product, normalize_warehouse
+from app.catalog.normalize import iso, now_utc, normalize_product, normalize_warehouse
 
 
 def load_fixture(path: Path) -> dict[str, Any]:
@@ -16,7 +16,7 @@ def load_fixture(path: Path) -> dict[str, Any]:
     warehouses = []
     for raw in payload.get("warehouses", []):
         value = normalize_warehouse(raw, "synthetic", fetched_at)
-        warehouses.append({"warehouse_id": value["warehouse_id"], "value": value, "raw": raw, "provenance": {"source_field": "fixture.warehouses", "transformation": "canonical fixture normalization", "fetched_at": value["fetched_at"]}})
+        warehouses.append({"warehouse_id": value["warehouse_id"], "value": value, "raw": raw, "provenance": {"source_field": "fixture.warehouses", "transformation": "canonical fixture normalization", "source_kind": "synthetic", "fetched_at": iso(fetched_at)}})
     products = []
     for raw in payload.get("products", []):
         value, stocks, product_warehouses = normalize_product(raw, "synthetic", fetched_at)

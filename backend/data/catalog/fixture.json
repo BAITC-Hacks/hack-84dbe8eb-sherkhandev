@@ -22,7 +22,7 @@
       "specs": {
         "poles": "1",
         "rated_current_a": "16",
-        "trip_curve": "C",
+        "trip_curve": "B",
         "breaking_capacity_ka": "6"
       },
       "product_url": null,

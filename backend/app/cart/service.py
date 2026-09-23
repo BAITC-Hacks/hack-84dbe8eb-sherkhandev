@@ -133,31 +133,88 @@ class CartService:
         if result is not None:
             return result
         now = _now()
-        action = PendingAction(action_id=secrets.token_urlsafe(18), product_id=product_id, warehouse_id=warehouse_id, product_name=snap.data.product.name, quantity_to_add=quantity_to_add, unit_price=snap.data.product.price, added_amount=snap.data.product.price * quantity_to_add, unit="pcs", quantity_step=snap.data.product.quantity_step, stock_quantity=snap.data.stock.quantity, checked_at=now, expires_at=now + timedelta(seconds=int(getattr(self.settings, "action_ttl_seconds", 300))), source_kind=snap.data.product.source_kind)
-        await asyncio.to_thread(self._save_pending_sync, context, action)
+        action = PendingAction(
+            action_id=secrets.token_urlsafe(18),
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            product_name=snap.data.product.name,
+            quantity_to_add=quantity_to_add,
+            unit_price=snap.data.product.price,
+            added_amount=snap.data.product.price * quantity_to_add,
+            unit="pcs",
+            quantity_step=snap.data.product.quantity_step,
+            stock_quantity=snap.data.stock.quantity,
+            checked_at=now,
+            expires_at=now + timedelta(seconds=int(getattr(self.settings, "action_ttl_seconds", 300))),
+            source_kind=snap.data.product.source_kind,
+        )
+        save_err = await asyncio.to_thread(self._save_pending_sync, context, action, snap.data.stock.quantity)
+        if save_err is not None:
+            return _err(save_err, "Insufficient stock for requested quantity")
         return _ok(action)
 
     @staticmethod
     def _validate_snapshot(snap: ProductSnapshot, quantity: int) -> ToolResult | None:
         p, s = snap.product, snap.stock
-        if p.price is None: return _err("PRICE_UNKNOWN", "Product price is unknown")
-        if p.unit != "pcs" or s.quantity is None or p.quantity_step is None: return _err("INVALID_SOURCE_DATA", "Sale unit, step, or stock is unknown")
-        if s.warehouse_eligible is not True: return _err("WAREHOUSE_NOT_ELIGIBLE", "Selected warehouse is not eligible for purchase")
-        if quantity % int(p.quantity_step) != 0: return _err("INVALID_QUANTITY", "Quantity must be a multiple of the sale step")
-        if s.quantity <= 0: return _err("INSUFFICIENT_STOCK", "Selected warehouse has no stock")
+        if p.price is None:
+            return _err("PRICE_UNKNOWN", "Product price is unknown")
+        if p.unit is None or s.quantity is None or p.quantity_step is None:
+            return _err("INVALID_SOURCE_DATA", "Sale unit, step, or stock is unknown")
+        if p.unit != "pcs":
+            return _err("UNSUPPORTED_SALE_UNIT", f"Unsupported sale unit: {p.unit}")
+        if not p.quantity_step.is_finite() or p.quantity_step <= Decimal("0") or p.quantity_step % Decimal("1") != Decimal("0"):
+            return _err("UNSUPPORTED_SALE_UNIT", "Quantity step must be a positive integer")
+        step_int = int(p.quantity_step)
+        if quantity % step_int != 0:
+            return _err("INVALID_QUANTITY", f"Quantity must be a multiple of the sale step ({step_int})")
+        if s.warehouse_eligible is not True:
+            return _err("WAREHOUSE_NOT_ELIGIBLE", "Selected warehouse is not eligible for purchase")
+        if s.quantity <= 0:
+            return _err("INSUFFICIENT_STOCK", "Selected warehouse has no stock")
         return None
 
-    def _save_pending_sync(self, context: SessionContext, action: PendingAction) -> None:
+    def _save_pending_sync(self, context: SessionContext, action: PendingAction, fresh_stock: Decimal) -> str | None:
         con = self._connect()
         try:
             con.execute("BEGIN IMMEDIATE")
             cart_id = self._ensure_cart(con, context)
+            row = con.execute(
+                "SELECT COALESCE(SUM(quantity),0) AS n FROM cart_items WHERE cart_id=? AND product_id=? AND warehouse_id=?",
+                (cart_id, action.product_id, action.warehouse_id),
+            ).fetchone()
+            current_in_cart = Decimal(row["n"]) if row else Decimal("0")
+            if current_in_cart + Decimal(action.quantity_to_add) > fresh_stock:
+                con.rollback()
+                return "INSUFFICIENT_STOCK"
             con.execute("UPDATE actions SET status='superseded' WHERE session_id=? AND status='pending'", (context.session_id,))
-            con.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (action.action_id, context.session_id, cart_id, action.product_id, action.warehouse_id, action.product_name, action.quantity_to_add, str(action.unit_price), str(action.added_amount), action.unit, str(action.quantity_step), str(action.stock_quantity), action.checked_at.isoformat(), action.expires_at.isoformat(), action.source_kind, "pending"))
+            con.execute(
+                "INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    action.action_id,
+                    context.session_id,
+                    cart_id,
+                    action.product_id,
+                    action.warehouse_id,
+                    action.product_name,
+                    action.quantity_to_add,
+                    str(action.unit_price),
+                    str(action.added_amount),
+                    action.unit,
+                    str(action.quantity_step),
+                    str(action.stock_quantity),
+                    action.checked_at.isoformat(),
+                    action.expires_at.isoformat(),
+                    action.source_kind,
+                    "pending",
+                ),
+            )
             con.commit()
+            return None
         except Exception:
-            con.rollback(); raise
-        finally: con.close()
+            con.rollback()
+            raise
+        finally:
+            con.close()
 
     async def get_pending_action(self, context: SessionContext) -> ToolResult[PendingActionResult]:
         row = await asyncio.to_thread(self._pending_sync, context.session_id)
@@ -174,21 +231,28 @@ class CartService:
 
     async def confirm_action(self, context: SessionContext, action_id: str) -> ToolResult[ConfirmResult]:
         row = await asyncio.to_thread(self._action_for_confirm, context.session_id, action_id)
-        if row is None: return _err("ACTION_NOT_FOUND", "Action was not found")
+        if row is None:
+            return _err("ACTION_NOT_FOUND", "Action was not found")
         if row["status"] == "committed":
-            return _ok(ConfirmResult(action_id=action_id, already_applied=True, cart=await asyncio.to_thread(self._get_cart_sync, context)))
-        if row["status"] in {"superseded", "invalidated"}: return _err("ACTION_SUPERSEDED", "This proposal was replaced or invalidated; request a new proposal")
+            cart = await asyncio.to_thread(self._get_cart_sync, context)
+            return _ok(ConfirmResult(action_id=action_id, already_applied=True, cart=cart))
+        if row["status"] in {"superseded", "invalidated"}:
+            return _err("ACTION_SUPERSEDED", "This proposal was replaced or invalidated; request a new proposal")
         if row["status"] == "expired" or datetime.fromisoformat(row["expires_at"]) <= _now():
-            await asyncio.to_thread(self._mark_status, action_id, "expired"); return _err("ACTION_EXPIRED", "This proposal has expired")
+            await asyncio.to_thread(self._mark_status, action_id, "expired")
+            return _err("ACTION_EXPIRED", "This proposal has expired")
         snap = await self.catalog.get_snapshot(row["product_id"], row["warehouse_id"], refresh=True)
-        if not snap.ok: return snap
+        if not snap.ok:
+            return snap
         changed = self._compare_action(row, snap.data)
         if changed:
             await asyncio.to_thread(self._mark_status, action_id, "invalidated")
             return _err(changed, "The product terms changed; request a new proposal")
         result = await asyncio.to_thread(self._commit_sync, context, row, snap.data)
-        if isinstance(result, str): return _err(result, "The cart could not accept this proposal")
-        return _ok(ConfirmResult(action_id=action_id, already_applied=False, cart=result))
+        if isinstance(result, str):
+            return _err(result, "The cart could not accept this proposal")
+        cart, already_applied = result
+        return _ok(ConfirmResult(action_id=action_id, already_applied=already_applied, cart=cart))
 
     def _action_for_confirm(self, session_id: str, action_id: str):
         con=self._connect()
@@ -208,27 +272,59 @@ class CartService:
         if s.quantity is None or s.warehouse_eligible is not True: return "ACTION_TERMS_CHANGED"
         return None
 
-    def _commit_sync(self, context: SessionContext, row, snap: ProductSnapshot):
-        con=self._connect()
+    def _commit_sync(self, context: SessionContext, row, snap: ProductSnapshot) -> tuple[Cart, bool] | str:
+        con = self._connect()
         try:
             con.execute("BEGIN IMMEDIATE")
-            current=con.execute("SELECT * FROM actions WHERE action_id=? AND session_id=?",(row["action_id"],context.session_id)).fetchone()
-            if current is None: return "ACTION_NOT_FOUND"
-            if current["status"] == "committed": return self._cart_dto(con,current["cart_id"],context.session_id,commit_view=False)
-            if current["status"] != "pending": return "ACTION_SUPERSEDED" if current["status"] == "superseded" else "ACTION_EXPIRED"
-            if datetime.fromisoformat(current["expires_at"]) <= _now(): con.execute("UPDATE actions SET status='expired' WHERE action_id=?",(row["action_id"],)); con.commit(); return "ACTION_EXPIRED"
-            existing=con.execute("SELECT COALESCE(SUM(quantity),0) AS n FROM cart_items WHERE cart_id=? AND product_id=? AND warehouse_id=?",(current["cart_id"],current["product_id"],current["warehouse_id"])).fetchone()["n"]
-            if Decimal(existing)+Decimal(current["quantity"]) > snap.stock.quantity: return "INSUFFICIENT_STOCK"
-            line_id=secrets.token_urlsafe(12)
-            con.execute("INSERT INTO cart_items VALUES(?,?,?,?,?,?,?,?,?)",(line_id,current["cart_id"],current["product_id"],current["warehouse_id"],current["product_name"],current["quantity"],current["unit_price"],current["added_amount"],current["action_id"]))
-            con.execute("UPDATE actions SET status='committed' WHERE action_id=?",(current["action_id"],))
+            current = con.execute("SELECT * FROM actions WHERE action_id=? AND session_id=?", (row["action_id"], context.session_id)).fetchone()
+            if current is None:
+                return "ACTION_NOT_FOUND"
+            if current["status"] == "committed":
+                cart = self._cart_dto(con, current["cart_id"], context.session_id, create_url=True, commit_view=True)
+                return cart, True
+            if current["status"] != "pending":
+                return "ACTION_SUPERSEDED" if current["status"] == "superseded" else "ACTION_EXPIRED"
+            if datetime.fromisoformat(current["expires_at"]) <= _now():
+                con.execute("UPDATE actions SET status='expired' WHERE action_id=?", (row["action_id"],))
+                con.commit()
+                return "ACTION_EXPIRED"
+            existing = con.execute(
+                "SELECT COALESCE(SUM(quantity),0) AS n FROM cart_items WHERE cart_id=? AND product_id=? AND warehouse_id=?",
+                (current["cart_id"], current["product_id"], current["warehouse_id"]),
+            ).fetchone()["n"]
+            if Decimal(existing) + Decimal(current["quantity"]) > snap.stock.quantity:
+                return "INSUFFICIENT_STOCK"
+            line_id = secrets.token_urlsafe(12)
+            con.execute(
+                "INSERT INTO cart_items VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    line_id,
+                    current["cart_id"],
+                    current["product_id"],
+                    current["warehouse_id"],
+                    current["product_name"],
+                    current["quantity"],
+                    current["unit_price"],
+                    current["added_amount"],
+                    current["action_id"],
+                ),
+            )
+            con.execute("UPDATE actions SET status='committed' WHERE action_id=?", (current["action_id"],))
+            cart = self._cart_dto(con, current["cart_id"], context.session_id, create_url=True, commit_view=False)
             con.commit()
-            return self._cart_dto(con,current["cart_id"],context.session_id,commit_view=False)
+            return cart, False
         except sqlite3.IntegrityError:
-            con.rollback(); return "ACTION_SUPERSEDED"
+            con.rollback()
+            check = con.execute("SELECT * FROM actions WHERE action_id=? AND status='committed'", (row["action_id"],)).fetchone()
+            if check:
+                cart = self._cart_dto(con, check["cart_id"], context.session_id, create_url=True, commit_view=True)
+                return cart, True
+            return "ACTION_SUPERSEDED"
         except Exception:
-            con.rollback(); raise
-        finally: con.close()
+            con.rollback()
+            raise
+        finally:
+            con.close()
 
     async def get_cart(self, context: SessionContext) -> ToolResult[Cart]:
         return _ok(await asyncio.to_thread(self._get_cart_sync, context))
@@ -249,5 +345,5 @@ class CartService:
             if row is None or datetime.fromisoformat(row["expires_at"]) <= _now(): return 404, "<h1>Ссылка недействительна</h1>"
             cart=self._cart_dto(con,row["cart_id"],row["session_id"],create_url=False)
             items="".join(f"<li>{html.escape(i.name)} — {i.quantity} шт. — {html.escape(str(i.line_total))} KZT</li>" for i in cart.items) or "<li>Корзина пуста</li>"
-            return 200, f"<!doctype html><meta charset='utf-8'><title>Корзина</title><h1>Демонстрационная корзина</h1><ul>{items}</ul><p>Итого: {html.escape(str(cart.total))} KZT</p><p>Ссылка только для просмотра.</p>"
+            return 200, f"<!doctype html><meta charset='utf-8'><title>Корзина</title><h1>Демонстрационная корзина</h1><p>Режим: {html.escape(cart.data_mode)}</p><ul>{items}</ul><p>Итого: {html.escape(str(cart.total))} KZT</p><p>Ссылка только для просмотра.</p>"
         finally: con.close()

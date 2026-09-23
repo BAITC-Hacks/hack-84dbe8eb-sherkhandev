@@ -22,7 +22,9 @@ CREATE TABLE IF NOT EXISTS catalog_products (
     product_json TEXT NOT NULL,
     raw_json TEXT NOT NULL,
     provenance_json TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
+    fetched_at TEXT NOT NULL,
+    article_folded TEXT NOT NULL DEFAULT '',
+    name_folded TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS catalog_stocks (
     product_id TEXT NOT NULL,
@@ -61,6 +63,13 @@ def run(path: Path, callback: Callable[[sqlite3.Connection], T]) -> T:
 def initialize(path: Path) -> None:
     def operation(connection: sqlite3.Connection) -> None:
         connection.executescript(SCHEMA)
+        cursor = connection.execute("PRAGMA table_info(catalog_products)")
+        columns = {row["name"] for row in cursor.fetchall()}
+        if "article_folded" not in columns:
+            connection.execute("ALTER TABLE catalog_products ADD COLUMN article_folded TEXT NOT NULL DEFAULT ''")
+        if "name_folded" not in columns:
+            connection.execute("ALTER TABLE catalog_products ADD COLUMN name_folded TEXT NOT NULL DEFAULT ''")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_products_search ON catalog_products(article_folded, name_folded)")
         connection.commit()
 
     run(path, operation)
@@ -86,21 +95,24 @@ def replace_catalog(path: Path, records: dict[str, Any]) -> None:
                     ),
                 )
             for product in records.get("products", []):
+                val = product["value"]
                 connection.execute(
-                    "INSERT OR REPLACE INTO catalog_products VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO catalog_products VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
-                        product["value"]["product_id"],
-                        json.dumps(product["value"], ensure_ascii=False),
-                        json.dumps(product.get("raw", product["value"]), ensure_ascii=False),
+                        val["product_id"],
+                        json.dumps(val, ensure_ascii=False),
+                        json.dumps(product.get("raw", val), ensure_ascii=False),
                         json.dumps(product.get("provenance", {}), ensure_ascii=False),
-                        product["value"]["fetched_at"],
+                        val["fetched_at"],
+                        str(val.get("article", "")).casefold(),
+                        str(val.get("name", "")).casefold(),
                     ),
                 )
                 for stock in product.get("stocks", []):
                     connection.execute(
                         "INSERT OR REPLACE INTO catalog_stocks VALUES (?, ?, ?, ?, ?)",
                         (
-                            product["value"]["product_id"],
+                            val["product_id"],
                             stock["value"]["warehouse_id"],
                             json.dumps(stock["value"], ensure_ascii=False),
                             json.dumps(stock.get("raw", stock["value"]), ensure_ascii=False),
@@ -120,13 +132,15 @@ def upsert_product(path: Path, product: dict[str, Any], raw: Any, provenance: di
         connection.execute("BEGIN IMMEDIATE")
         try:
             connection.execute(
-                "INSERT OR REPLACE INTO catalog_products VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO catalog_products VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     product["product_id"],
                     json.dumps(product, ensure_ascii=False),
                     json.dumps(raw, ensure_ascii=False),
                     json.dumps(provenance, ensure_ascii=False),
                     product["fetched_at"],
+                    str(product.get("article", "")).casefold(),
+                    str(product.get("name", "")).casefold(),
                 ),
             )
             for record in warehouses or []:

@@ -85,9 +85,9 @@ def _first(raw: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def normalize_warehouse(raw: dict[str, Any], source_kind: str, fetched_at: datetime) -> dict[str, Any]:
-    warehouse_id = _text(_first(raw, "warehouse_id", "id", "code"))
-    name = _text(_first(raw, "name", "title", "warehouse_name"))
+def normalize_warehouse(raw: dict[str, Any], source_kind: str | None = None, fetched_at: datetime | None = None) -> dict[str, Any]:
+    warehouse_id = _text(_first(raw, "warehouse_id", "id", "code", "store_id"))
+    name = _text(_first(raw, "name", "title", "warehouse_name", "store_name"))
     if not warehouse_id or not name:
         raise ValueError("warehouse requires id and name")
     eligible = raw.get("eligible") if isinstance(raw.get("eligible"), bool) else None
@@ -95,8 +95,6 @@ def normalize_warehouse(raw: dict[str, Any], source_kind: str, fetched_at: datet
         "warehouse_id": warehouse_id,
         "name": name,
         "eligible": eligible,
-        "source_kind": source_kind,
-        "fetched_at": iso(fetched_at),
     }
 
 
@@ -144,22 +142,35 @@ def normalize_product(raw: dict[str, Any], source_kind: str, fetched_at: datetim
     }
     warehouses: list[dict[str, Any]] = []
     stocks: list[dict[str, Any]] = []
-    raw_stocks = raw.get("stocks", raw.get("warehouses", raw.get("offers", [])))
+    raw_stocks = _first(raw, "stocks", "warehouses", "offers", "stores") or []
     if isinstance(raw_stocks, dict):
         raw_stocks = [raw_stocks]
     if isinstance(raw_stocks, list):
         for item in raw_stocks:
             if not isinstance(item, dict):
                 continue
-            warehouse_raw = item.get("warehouse", item)
+            warehouse_raw = item.get("warehouse", item.get("store", item))
             try:
                 warehouse = normalize_warehouse(warehouse_raw, source_kind, fetched_at)
             except ValueError:
                 continue
-            warehouse["eligible"] = item.get("eligible") if isinstance(item.get("eligible"), bool) else warehouse.get("eligible")
-            warehouses.append({"warehouse_id": warehouse["warehouse_id"], "value": warehouse, "raw": warehouse_raw, "provenance": {"source_field": "warehouse", "transformation": "normalized id/name/eligible", "fetched_at": iso(fetched_at)}})
-            quantity, quantity_issue = decimal_text(_first(item, "quantity", "stock", "available", "count"))
-            stock_issues = [] if not quantity_issue or _first(item, "quantity", "stock", "available", "count") is None else [quantity_issue]
+            item_eligible = item.get("eligible") if isinstance(item.get("eligible"), bool) else warehouse_raw.get("eligible") if isinstance(warehouse_raw.get("eligible"), bool) else None
+            if item_eligible is not None:
+                warehouse["eligible"] = item_eligible
+            warehouses.append({
+                "warehouse_id": warehouse["warehouse_id"],
+                "value": warehouse,
+                "raw": warehouse_raw,
+                "provenance": {
+                    "source_field": "warehouse/store",
+                    "transformation": "normalized id/name/eligible",
+                    "source_kind": source_kind,
+                    "fetched_at": iso(fetched_at),
+                },
+            })
+            quantity_val = _first(item, "quantity", "stock", "available", "count")
+            quantity, quantity_issue = decimal_text(quantity_val)
+            stock_issues = [] if not quantity_issue or quantity_val is None else [quantity_issue]
             stock = {
                 "product_id": product_id,
                 "warehouse_id": warehouse["warehouse_id"],
@@ -172,5 +183,15 @@ def normalize_product(raw: dict[str, Any], source_kind: str, fetched_at: datetim
                 "data_issues": stock_issues,
                 "warehouse": warehouse,
             }
-            stocks.append({"warehouse_id": warehouse["warehouse_id"], "value": stock, "raw": item, "provenance": {"source_field": "quantity/stock/available/count", "transformation": "validated non-negative decimal; unknown stays null", "fetched_at": iso(fetched_at)}})
+            stocks.append({
+                "warehouse_id": warehouse["warehouse_id"],
+                "value": stock,
+                "raw": item,
+                "provenance": {
+                    "source_field": "quantity/stock/available/count",
+                    "transformation": "validated non-negative decimal; unknown stays null",
+                    "source_kind": source_kind,
+                    "fetched_at": iso(fetched_at),
+                },
+            })
     return product, stocks, warehouses

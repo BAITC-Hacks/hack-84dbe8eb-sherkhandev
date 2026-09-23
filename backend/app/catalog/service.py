@@ -121,12 +121,12 @@ class CatalogService:
             if item.key not in self._allowed_spec_keys:
                 return _error("INVALID_REQUEST", f"Unknown specification filter: {item.key}")
         term = query.strip()
-        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{escaped}%"
         if term:
+            escaped = term.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
             rows = await self._rows(
-                "SELECT product_json FROM catalog_products WHERE product_json LIKE ? ESCAPE '\\' OR product_json LIKE ? ESCAPE '\\' OR product_json LIKE ? ESCAPE '\\' OR product_json LIKE ? ESCAPE '\\' ORDER BY product_id",
-                (pattern, pattern, pattern, pattern),
+                "SELECT product_json FROM catalog_products WHERE article_folded LIKE ? ESCAPE '\\' OR name_folded LIKE ? ESCAPE '\\' ORDER BY product_id",
+                (pattern, pattern),
             )
         else:
             rows = await self._rows("SELECT product_json FROM catalog_products ORDER BY product_id")

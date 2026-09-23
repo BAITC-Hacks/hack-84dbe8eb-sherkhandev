@@ -146,6 +146,14 @@ class AgentService:
         state = await self.sessions.get_state(context.session_id)
         history = list(state.history[-12:]) if state else []
         safe_input: list[Any] = [self._system_item()]
+        if state is not None:
+            context_notes: list[str] = []
+            if state.selected_warehouse_id:
+                context_notes.append(f"Текущий подтверждённый склад: {state.selected_warehouse_id}.")
+            if state.selected_product_id:
+                context_notes.append(f"Текущий фокусный товар: {state.selected_product_id}.")
+            if context_notes:
+                safe_input.append({"role": "system", "content": " ".join(context_notes)})
         safe_input.extend(history)
         safe_input.append({"role": "user", "content": self._safe_text(request.message)})
         products: list[Product] = []
@@ -172,6 +180,7 @@ class AgentService:
                             text = "Не удалось получить подтверждённые данные для этого запроса."
                         if pending is not None:
                             text = self._pending_message(pending)
+                        text = self._safe_text(text)
                         await self._remember(context, request.message, text)
                         return ChatResponse(message=text, products=products, pending_action=pending, cart=cart, warnings=tool_failures)
 
@@ -366,7 +375,11 @@ class AgentService:
 
     @staticmethod
     def _safe_text(value: str) -> str:
-        value = re.sub(r"https?://[^\s]+/cart/view/[A-Za-z0-9_-]+", "[cart-link-redacted]", value)
+        value = re.sub(
+            r"(?i)(?:https?://[^\s/]+)?/cart/view/[A-Za-z0-9_-]+(?:[?#][^\s]*)?",
+            "[cart-link-redacted]",
+            value,
+        )
         value = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~-]+", "Bearer [token-redacted]", value)
         return value
 

@@ -193,3 +193,77 @@ async def test_confirmation_phrase_without_action_id_does_not_change_cart():
     assert cart.confirmed == []
     assert llm.calls
     assert result.message == "Уточните идентификатор предложения."
+
+
+@pytest.mark.asyncio
+async def test_session_context_warehouse_and_product_injected_into_safe_input():
+    responses = [SimpleNamespace(output=[], output_text="Товар и склад учтены.")]
+    agent, sessions, _, _, llm = service(responses)
+    created = await sessions.create()
+    await sessions.set_selection(created.session_id, warehouse_id="w-demo-1", product_id="prod-99")
+
+    from app.contracts import ChatRequest
+    result = await agent.handle_message(
+        SessionContext(session_id=created.session_id),
+        ChatRequest(message="какой склад выбран?"),
+    )
+
+    assert result.message == "Товар и склад учтены."
+    assert len(llm.calls) == 1
+    input_items = llm.calls[0]["input"]
+    system_messages = [item for item in input_items if item.get("role") == "system"]
+    assert any("Текущий подтверждённый склад: w-demo-1." in m.get("content", "") for m in system_messages)
+    assert any("Текущий фокусный товар: prod-99." in m.get("content", "") for m in system_messages)
+    # Ensure tokens are not leaked into LLM input
+    assert not any(created.session_id in str(item) for item in input_items)
+
+
+@pytest.mark.asyncio
+async def test_session_context_empty_when_no_selection():
+    responses = [SimpleNamespace(output=[], output_text="Ответ.")]
+    agent, sessions, _, _, llm = service(responses)
+    created = await sessions.create()
+
+    from app.contracts import ChatRequest
+    await agent.handle_message(
+        SessionContext(session_id=created.session_id),
+        ChatRequest(message="привет"),
+    )
+
+    input_items = llm.calls[0]["input"]
+    system_messages = [item for item in input_items if item.get("role") == "system"]
+    assert not any("Текущий подтверждённый склад:" in m.get("content", "") for m in system_messages)
+    assert not any("Текущий фокусный товар:" in m.get("content", "") for m in system_messages)
+
+
+def test_safe_text_sanitizes_cart_urls_and_tokens_and_preserves_certificates():
+    # 1. Relative cart URL
+    assert AgentService._safe_text("Ссылка: /cart/view/abc-123_xyz") == "Ссылка: [cart-link-redacted]"
+
+    # 2. Absolute HTTP cart URL
+    assert AgentService._safe_text("Ссылка: http://localhost:8000/cart/view/token123") == "Ссылка: [cart-link-redacted]"
+
+    # 3. Absolute HTTPS cart URL
+    assert AgentService._safe_text("Ссылка: https://store.ekt.kz/cart/view/token123") == "Ссылка: [cart-link-redacted]"
+
+    # 4. Cart URL with query parameters
+    assert AgentService._safe_text("Ссылка: /cart/view/xyz?token=123&mode=demo") == "Ссылка: [cart-link-redacted]"
+
+    # 5. Cart URL with fragment
+    assert AgentService._safe_text("Ссылка: /cart/view/xyz#summary") == "Ссылка: [cart-link-redacted]"
+
+    # 6. Cart URL with query and fragment
+    assert AgentService._safe_text("Ссылка: https://site.org/cart/view/xyz?token=123#summary") == "Ссылка: [cart-link-redacted]"
+
+    # 7. Bearer token in various casing
+    assert AgentService._safe_text("Header: Bearer sec.ret-123_xyz~") == "Header: Bearer [token-redacted]"
+    assert AgentService._safe_text("Header: bearer sec.ret-123_xyz~") == "Header: Bearer [token-redacted]"
+    assert AgentService._safe_text("Header: BEARER sec.ret-123_xyz~") == "Header: Bearer [token-redacted]"
+
+    # 8. Certificate links preserved and untouched
+    cert_relative = "Сертификат: /demo-certificates/demo-001.pdf"
+    assert AgentService._safe_text(cert_relative) == cert_relative
+
+    cert_absolute = "Сертификат: https://example.com/demo-certificates/demo-001.pdf"
+    assert AgentService._safe_text(cert_absolute) == cert_absolute
+
