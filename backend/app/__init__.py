@@ -1,0 +1,2 @@
+"""EKT AI application package."""
+
